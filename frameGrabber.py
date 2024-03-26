@@ -56,7 +56,9 @@ class ImageWriter(object):
   def __init__(self):
     self.lib = ctypes.cdll.LoadLibrary('/fusion2/imageWriterDriver.so')
     result = self.lib.init()
-  
+    self.f2 = open("/dev/mem", "r+b")
+    self.switchMem = mmap.mmap(self.f2.fileno(), 1000, offset=0x43c20000)
+    
   def setFrame(self,frame):
     result = self.lib.setFrame(ctypes.c_void_p(frame.ctypes.data))
     self.switchMem.seek(0) 
