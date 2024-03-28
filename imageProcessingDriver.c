@@ -89,12 +89,12 @@ typedef struct {
     int pixelLength;
     int fbLength;
     unsigned int* vdmaVirtualAddress;
-    unsigned char* fb1VirtualAddress;
-    unsigned char* fb1PhysicalAddress;
-    unsigned char* fb2VirtualAddress;
-    unsigned char* fb2PhysicalAddress;
-    unsigned char* fb3VirtualAddress;
-    unsigned char* fb3PhysicalAddress;
+    unsigned int* fb1VirtualAddress;
+    unsigned int* fb1PhysicalAddress;
+    unsigned int* fb2VirtualAddress;
+    unsigned int* fb2PhysicalAddress;
+    unsigned int* fb3VirtualAddress;
+    unsigned int* fb3PhysicalAddress;
 
     pthread_mutex_t lock;
 } vdma_handle;
@@ -102,6 +102,14 @@ typedef struct {
 vdma_handle handleGlobal;
 uint8_t *mm_data_info;
 int     staticX;
+
+unsigned int vdma_get(vdma_handle *handle, int num) {
+    return handle->vdmaVirtualAddress[num>>2];
+}
+
+void vdma_set(vdma_handle *handle, int num, unsigned int val) {
+    handle->vdmaVirtualAddress[num>>2]=val;
+}
 
 void vdma_halt(vdma_handle *handle) {
     vdma_set(handle, OFFSET_VDMA_S2MM_CONTROL_REGISTER, VDMA_CONTROL_REGISTER_RESET);
@@ -111,14 +119,6 @@ void vdma_halt(vdma_handle *handle) {
     munmap((void *)handle->fb2VirtualAddress, handle->fbLength);
     munmap((void *)handle->fb3VirtualAddress, handle->fbLength);
     close(handle->vdmaHandler);
-}
-
-unsigned int vdma_get(vdma_handle *handle, int num) {
-    return handle->vdmaVirtualAddress[num>>2];
-}
-
-void vdma_set(vdma_handle *handle, int num, unsigned int val) {
-    handle->vdmaVirtualAddress[num>>2]=val;
 }
 
 int vdma_setup(vdma_handle *handle, unsigned int baseAddr, int width, int height, int pixelLength, unsigned int fb1Addr, unsigned int fb2Addr, unsigned int fb3Addr) {
@@ -134,22 +134,22 @@ int vdma_setup(vdma_handle *handle, unsigned int baseAddr, int width, int height
         return -1;
     }
 
-    handle->fb1PhysicalAddress = fb1Addr;
-    handle->fb1VirtualAddress = (unsigned char*)mmap(NULL, handle->fbLength, PROT_READ | PROT_WRITE, MAP_SHARED, handle->vdmaHandler, (off_t)fb1Addr);
+    handle->fb1PhysicalAddress = (unsigned int*)fb1Addr;
+    handle->fb1VirtualAddress = (unsigned int*)mmap(NULL, handle->fbLength, PROT_READ | PROT_WRITE, MAP_SHARED, handle->vdmaHandler, (off_t)fb1Addr);
     if(handle->fb1VirtualAddress == MAP_FAILED) {
         perror("fb1VirtualAddress mapping for absolute memory access failed.\n");
         return -2;
     }
 
-    handle->fb2PhysicalAddress = fb2Addr;
-    handle->fb2VirtualAddress = (unsigned char*)mmap(NULL, handle->fbLength, PROT_READ | PROT_WRITE, MAP_SHARED, handle->vdmaHandler, (off_t)fb2Addr);
+    handle->fb2PhysicalAddress = (unsigned int*)fb2Addr;
+    handle->fb2VirtualAddress = (unsigned int*)mmap(NULL, handle->fbLength, PROT_READ | PROT_WRITE, MAP_SHARED, handle->vdmaHandler, (off_t)fb2Addr);
     if(handle->fb2VirtualAddress == MAP_FAILED) {
         perror("fb2VirtualAddress mapping for absolute memory access failed.\n");
         return -3;
     }
 
-    handle->fb3PhysicalAddress = fb3Addr;
-    handle->fb3VirtualAddress = (unsigned char*)mmap(NULL, handle->fbLength, PROT_READ | PROT_WRITE, MAP_SHARED, handle->vdmaHandler, (off_t)fb3Addr);
+    handle->fb3PhysicalAddress = (unsigned int*)fb3Addr;
+    handle->fb3VirtualAddress = (unsigned int*)mmap(NULL, handle->fbLength, PROT_READ | PROT_WRITE, MAP_SHARED, handle->vdmaHandler, (off_t)fb3Addr);
     if(handle->fb3VirtualAddress == MAP_FAILED)
     {
      perror("fb3VirtualAddress mapping for absolute memory access failed.\n");
@@ -191,9 +191,9 @@ void vdma_start_triple_buffering(vdma_handle *handle) {
     vdma_set(handle, OFFSET_VDMA_S2MM_REG_INDEX, 0);
 
     // Write physical addresses to control register
-    vdma_set(handle, OFFSET_VDMA_S2MM_FRAMEBUFFER1, handle->fb1PhysicalAddress);
-    vdma_set(handle, OFFSET_VDMA_S2MM_FRAMEBUFFER2, handle->fb2PhysicalAddress);
-    vdma_set(handle, OFFSET_VDMA_S2MM_FRAMEBUFFER3, handle->fb3PhysicalAddress);
+    vdma_set(handle, OFFSET_VDMA_S2MM_FRAMEBUFFER1, (unsigned int)handle->fb1PhysicalAddress);
+    vdma_set(handle, OFFSET_VDMA_S2MM_FRAMEBUFFER2, (unsigned int)handle->fb2PhysicalAddress);
+    vdma_set(handle, OFFSET_VDMA_S2MM_FRAMEBUFFER3, (unsigned int)handle->fb3PhysicalAddress);
 
     // Write Park pointer register
     vdma_set(handle, OFFSET_PARK_PTR_REG, 0);
