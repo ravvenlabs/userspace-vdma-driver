@@ -184,7 +184,7 @@ void vdma_start_triple_buffering(vdma_handle *handle) {
 }
 
 int init(){
-  vdma_setup(&handleGlobal, 0x43020000, 752, 480, 8, 0x37000000);
+  vdma_setup(&handleGlobal, 0xA0020000, 752, 480, 8, 0x26000000);
   vdma_start_triple_buffering(&handleGlobal);
   return(0);
 }

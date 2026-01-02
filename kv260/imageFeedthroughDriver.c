@@ -632,12 +632,12 @@ void vdma_start_triple_buffering(vdma_handle *handle) {
 int init(char *name0, char *name1, int width, int height, int depth){
   int cached;
   int fd;
-  vdma_setup(&handleGlobal, 0x43000000, 752, 480, 8, 0x31000000, 0x32000000, 0x33000000);
+  vdma_setup(&handleGlobal, 0xA0000000, 752, 480, 8, 0x20000000, 0x21000000, 0x22000000);
   //vdma_setup2(&handleGlobal,width,height,depth,name0,name1);
   vdma_start_triple_buffering(&handleGlobal);
   cached = 0;
   fd = open("/dev/mem", O_RDWR|(!cached ? O_SYNC : 0));
-  mm_data_info = mmap(NULL, 32, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0x43C50000);
+  mm_data_info = mmap(NULL, 32, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0xA0030000);
   staticX = 0;
   return(0);
 }
@@ -647,6 +647,7 @@ int getFrame(void * indatav){
   indata = (uint32_t*) indatav;
   int x;
   x = (*(volatile int *)(mm_data_info + 12));
+  printf("x is: %d\n",x);
   if (x != staticX) {   
     if ((x == 1) || (x == 6)){
         memcpy((indata), handleGlobal.fb3VirtualAddress, MAP_SIZE); 
