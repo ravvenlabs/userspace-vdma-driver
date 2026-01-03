@@ -468,8 +468,8 @@ int vdma_setup(vdma_handle *handle, unsigned int baseAddr, int width, int height
     return 0;
 }
 
-int vdma_setup2(vdma_handle *handle, int width, int height, int pixelLength, char *name0, char *name1) {
-	struct uio_info_t *info_list, *p, *regs, *bufs;
+int vdma_setup_uio(vdma_handle *handle, int width, int height, int pixelLength, char *name0, char *name1, char *name2, char *name3) {
+	struct uio_info_t *info_list, *p, *regs, *buf1, *buf2, *buf3;
 	int compareResult;
 	int uioNum = -1;
 	int uioCount = 0;
@@ -480,8 +480,6 @@ int vdma_setup2(vdma_handle *handle, int width, int height, int pixelLength, cha
 	int fd4;
 	int map_num = 0;
 	
-	printf("in vdma setup2!!\r\n");
-	
 	info_list = uio_find_devices(-1,&uioCount);
 	if (!info_list)
 		printf("No UIO devices found.\n");
@@ -490,30 +488,26 @@ int vdma_setup2(vdma_handle *handle, int width, int height, int pixelLength, cha
 
 	while (p) {
 		uio_get_all_info(p);
-
-		//compareResult = strcmp("vdma1-read-reg",p->name);
+        
 		compareResult = strcmp(name0,p->name);
 		if (compareResult == 0){
 			regs = p;
 		}
 		
-		//compareResult = strcmp("vdma1-read-buf1",p->name);
 		compareResult = strcmp(name1,p->name);
 		if (compareResult == 0){
-			bufs = p;
+			buf1 = p;
 		}
 		
-		//compareResult = strcmp("vdma1-read-buf2",p->name);
-		//compareResult = strcmp(name2,p->name);
-		//if (compareResult == 0){
-		//	buf2 = p;
-		//}
+		compareResult = strcmp(name2,p->name);
+		if (compareResult == 0){
+			buf2 = p;
+		}
 		
-		//compareResult = strcmp("vdma1-read-buf3",p->name);
-		//compareResult = strcmp(name3,p->name);
-		//if (compareResult == 0){
-		//	buf3 = p;
-		//}
+		compareResult = strcmp(name3,p->name);
+		if (compareResult == 0){
+			buf3 = p;
+		}
 		
 		p = p->next;
 	}
@@ -534,49 +528,46 @@ int vdma_setup2(vdma_handle *handle, int width, int height, int pixelLength, cha
 			       MAP_SHARED,
 			       fd1,
 			       map_num*getpagesize());
-				   
+				            
 	// setup frame buffer 1
-	sprintf(dev_name,"/dev/uio%d",bufs->uio_num);
+	sprintf(dev_name,"/dev/uio%d",buf1->uio_num);
 	fd2 = open(dev_name,O_RDWR | O_SYNC);
 	
 	map_num = 0;
-	handle->fb1PhysicalAddress = bufs->maps[map_num].addr;
+	handle->fb1PhysicalAddress = buf1->maps[map_num].addr;
 	handle->fb1VirtualAddress = mmap( NULL,
-			       bufs->maps[map_num].size,
+			       handle->fbLength,
 			       PROT_READ | PROT_WRITE,
 			       MAP_SHARED,
 			       fd2,
 			       map_num*getpagesize());
-	
+	    
 	// setup frame buffer 2
-	//sprintf(dev_name,"/dev/ui	o%d",buf2->uio_num);
-	//fd3 = open(dev_name,O_RDWR | O_SYNC);
+	sprintf(dev_name,"/dev/uio%d",buf2->uio_num);
+	fd3 = open(dev_name,O_RDWR | O_SYNC);
 
-	handle->fb2PhysicalAddress = handle->fb1PhysicalAddress + 0x400000;
-
-	handle->fb2VirtualAddress = handle->fb1VirtualAddress + 0x400000;
-
-	//handle->fb2VirtualAddress = mmap( NULL,
-	//		       buf2->maps[map_num].size,
-	//		       PROT_READ | PROT_WRITE,
-	//		       MAP_SHARED,
-	//		       fd3,
-	//		       map_num*getpagesize());
-
-	// setup frame buffer 3
-	//sprintf(dev_name,"/dev/uio%d",buf3->uio_num);
-	//fd4 = open(dev_name,O_RDWR | O_SYNC);
-
-	handle->fb3PhysicalAddress = handle->fb2PhysicalAddress + 0x400000;
-	handle->fb3VirtualAddress = handle->fb2VirtualAddress + 0x400000;
-
-	//handle->fb3VirtualAddress = mmap( NULL,
-	//		       buf3->maps[map_num].size,
-	//		       PROT_READ | PROT_WRITE,
-	//		       MAP_SHARED,
-	//		       fd4,
-	//		       map_num*getpagesize());
+    map_num = 0;
+    handle->fb2PhysicalAddress = buf2->maps[map_num].addr;
+	handle->fb2VirtualAddress = mmap( NULL,
+			       handle->fbLength,
+			       PROT_READ | PROT_WRITE,
+			       MAP_SHARED,
+			       fd3,
+			       map_num*getpagesize());
     
+	// setup frame buffer 3
+	sprintf(dev_name,"/dev/uio%d",buf3->uio_num);
+	fd4 = open(dev_name,O_RDWR | O_SYNC);
+
+    map_num = 0;
+    handle->fb3PhysicalAddress = buf3->maps[map_num].addr;
+	handle->fb3VirtualAddress = mmap( NULL,
+			       handle->fbLength,
+			       PROT_READ | PROT_WRITE,
+			       MAP_SHARED,
+			       fd4,
+			       map_num*getpagesize());
+        
     return 0;
 }
 
@@ -629,11 +620,11 @@ void vdma_start_triple_buffering(vdma_handle *handle) {
     vdma_set(handle, OFFSET_VDMA_S2MM_VSIZE, handle->height);
 }
 
-int init(char *name0, char *name1, int width, int height, int depth){
+int init(char *name0, char *name1, char *name2, char *name3, int width, int height, int depth){
   int cached;
   int fd;
-  vdma_setup(&handleGlobal, 0xA0000000, 752, 480, 8, 0x20000000, 0x21000000, 0x22000000);
-  //vdma_setup2(&handleGlobal,width,height,depth,name0,name1);
+  //vdma_setup(&handleGlobal, 0xA0000000, 752, 480, 8, 0x20000000, 0x21000000, 0x22000000);
+  vdma_setup_uio(&handleGlobal,width,height,depth,name0,name1,name2,name3);
   vdma_start_triple_buffering(&handleGlobal);
   cached = 0;
   fd = open("/dev/mem", O_RDWR|(!cached ? O_SYNC : 0));
