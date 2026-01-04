@@ -35,7 +35,7 @@ class ImageFeedthrough(object):
 class ImageProcessing(object):
   def __init__(self):
     self.lib = ctypes.cdll.LoadLibrary('/home/kria/imageProcessingDriver.so')
-    result = self.lib.init("vdma1-read-regs","vdma1-read-bufs",752,480,8)
+    result = self.lib.init(b"vdma2-read-reg",b"vdma2-read-buf1",b"vdma2-read-buf2",b"vdma2-read-buf3",752,480,8)
     self.receiveFrame= np.ones((480,752,8), dtype=np.uint8)
 
   def getStereoRGB(self):
