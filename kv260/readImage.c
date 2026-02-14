@@ -82,6 +82,9 @@
 #define VDMA_STATUS_REGISTER_FrameCount                 0x00ff0000  // Read-only
 #define VDMA_STATUS_REGISTER_DelayCount                 0xff000000  // Read-only
 
+// park pointer register bit mask.  Offset 0x28
+#define VDMA_CURRENT_FRAME                              0x0f000000  // Read-only
+
 #define UIO_MAX_NAME_SIZE	64
 #define UIO_MAX_NUM		    255
 
@@ -604,50 +607,34 @@ void vdma_start_triple_buffering(vdma_handle *handle) {
 }
 
 int init(char *name0, char *name1, char *name2, char *name3, int width, int height, int depth){
-  int cached;
-  int fd;
-  //vdma_setup(&handleGlobal, 0xA0000000, 752, 480, 8, 0x20000000, 0x21000000, 0x22000000);
   vdma_setup_uio(&handleGlobal,width,height,depth,name0,name1,name2,name3);
   vdma_start_triple_buffering(&handleGlobal);
-  cached = 0;
-  fd = open("/dev/mem", O_RDWR|(!cached ? O_SYNC : 0));
-  mm_data_info = mmap(NULL, 32, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0xA0030000);
-  staticX = 0;
   return(0);
 }
 
 int getFrame(void * indatav){
   uint32_t* indata;
+  uint32_t currentFrame;
+    
   indata = (uint32_t*) indatav;
-  int x;
-  x = (*(volatile int *)(mm_data_info + 12));
-  printf("x value: %d\n",x);
-  if (x != staticX) {   
-    if ((x == 1) || (x == 6)){
-        //memcpy((indata), handleGlobal.fb3VirtualAddress, MAP_SIZE); 
-        memcpy((indata), handleGlobal.fb3VirtualAddress, handleGlobal.fbLength); 
-    }
-    else if ((x == 3) || (x == 7)){
-        //memcpy((indata), handleGlobal.fb1VirtualAddress, MAP_SIZE); 
-        memcpy((indata), handleGlobal.fb1VirtualAddress, handleGlobal.fbLength); 
-    }
-    else if ((x == 2) || (x == 5)){
-        //memcpy((indata), handleGlobal.fb2VirtualAddress, MAP_SIZE); 
-        memcpy((indata), handleGlobal.fb2VirtualAddress, handleGlobal.fbLength); 
-    }
-    else{
-        printf("error in imageFeedthroughDriver.so\n");
-    } 
-    staticX = x;
-    return(0);
+  currentFrame = (vdma_get(&handleGlobal, OFFSET_PARK_PTR_REG) & VDMA_CURRENT_FRAME) >> 24;
+  
+  if (currentFrame == 0){
+    memcpy((indata), handleGlobal.fb3VirtualAddress, handleGlobal.fbLength); 
+  }
+  else if (currentFrame == 1){
+    memcpy((indata), handleGlobal.fb1VirtualAddress, handleGlobal.fbLength); 
+  }
+  else if (currentFrame == 2){
+    memcpy((indata), handleGlobal.fb2VirtualAddress, handleGlobal.fbLength); 
   }
   else{
-    return(1);
-  }
+    printf("error in readImage.so\n");
+  } 
+  return(0);
 }
 
 int destroy(){
-  munmap((void *)mm_data_info, 32);
   vdma_halt(&handleGlobal);
   return(0);
 }

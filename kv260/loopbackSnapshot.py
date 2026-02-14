@@ -28,17 +28,15 @@ time.sleep(1)
 print("writing frame to FPGA")
 # generate testing image
 data = np.zeros((height,width,depth), dtype=np.uint8)
-data[:,100,:] = 250 
+data[:,200,:] = 250 
 data[:,980,:] = 250 
 data[100,:,:] = 250 
 data[620,:,:] = 250 
+
 camWriter.setFrame(data)
 time.sleep(1)
 camWriter.setFrame(data)
 time.sleep(1)
-camWriter.setFrame(data)
-time.sleep(1)
-camWriter.setFrame(data)
 
 frameLeft,frameRight = camFeedthrough.getStereoRGB()    
 time.sleep(1)
@@ -52,14 +50,12 @@ camWriter.setFrame(data)
 time.sleep(1)
 camWriter.setFrame(data)
 time.sleep(1)
-camWriter.setFrame(data)
-time.sleep(1)
-camWriter.setFrame(data)
+
 frameLeft,frameRight = camProcessed.getStereoRGB()    
 time.sleep(1)
 frameLeft,frameRight = camProcessed.getStereoRGB()   
 time.sleep(1) 
 frameLeft,frameRight = camProcessed.getStereoRGB()  
 time.sleep(1)  
-cv2.imwrite("leftProcessing.jpg", frameLeft)
-cv2.imwrite("rightProcessing.jpg", frameRight)
+cv2.imwrite("leftProcessed.jpg", frameLeft)
+cv2.imwrite("rightProcessed.jpg", frameRight)
