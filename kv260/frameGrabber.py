@@ -12,10 +12,10 @@ import ctypes
 import copy
 
 class ImageFeedthrough(object):
-  def __init__(self):
+  def __init__(self,width,height,depth):
     self.lib = ctypes.cdll.LoadLibrary('/home/kria/imageFeedthroughDriver.so')
-    result = self.lib.init(b"vdma1-read-reg",b"vdma1-read-buf1",b"vdma1-read-buf2",b"vdma1-read-buf3",752,480,8)
-    self.receiveFrame= np.ones((480,752,8), dtype=np.uint8)
+    result = self.lib.init(b"vdma1-read-reg",b"vdma1-read-buf1",b"vdma1-read-buf2",b"vdma1-read-buf3",width,height,depth)
+    self.receiveFrame= np.ones((height,width,depth), dtype=np.uint8)
     
   def getStereoRGB(self):
     result = self.lib.getFrame(ctypes.c_void_p(self.receiveFrame.ctypes.data))
@@ -33,10 +33,13 @@ class ImageFeedthrough(object):
     result = self.lib.destroy
         
 class ImageProcessing(object):
-  def __init__(self):
-    self.lib = ctypes.cdll.LoadLibrary('/home/kria/imageProcessingDriver.so')
-    result = self.lib.init(b"vdma2-read-reg",b"vdma2-read-buf1",b"vdma2-read-buf2",b"vdma2-read-buf3",752,480,8)
-    self.receiveFrame= np.ones((480,752,8), dtype=np.uint8)
+  def __init__(self,width,height,depth):
+    #self.lib = ctypes.cdll.LoadLibrary('/home/kria/imageProcessingDriver.so')
+    #result = self.lib.init(b"vdma2-read-reg",b"vdma2-read-buf1",b"vdma2-read-buf2",b"vdma2-read-buf3",752,480,8)
+    #self.receiveFrame= np.ones((480,752,8), dtype=np.uint8)
+    self.lib = ctypes.cdll.LoadLibrary('/home/kria/imageFeedthroughDriver.so')
+    result = self.lib.init(b"vdma2-read-reg",b"vdma2-read-buf1",b"vdma2-read-buf2",b"vdma2-read-buf3",width,height,depth)
+    self.receiveFrame= np.ones((height,width,depth), dtype=np.uint8)
 
   def getStereoRGB(self):
     result = self.lib.getFrame(ctypes.c_void_p(self.receiveFrame.ctypes.data))
@@ -54,9 +57,10 @@ class ImageProcessing(object):
     result = self.lib.destroy
     
 class ImageWriter(object):
-  def __init__(self):
+  def __init__(self,width,height,depth):
     self.lib = ctypes.cdll.LoadLibrary('/home/kria/imageWriterDriver.so')
-    result = self.lib.init()
+    #result = self.lib.init()
+    result = self.lib.init(b"vdma3-write-reg",b"vdma3-write-buf",width,height,depth)
     self.f2 = open("/dev/mem", "r+b")
     self.switchMem = mmap.mmap(self.f2.fileno(), 1000, offset=0xa0050000)
     

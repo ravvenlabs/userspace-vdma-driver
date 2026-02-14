@@ -20,7 +20,7 @@
 #include <errno.h>
 #define PAGE_SIZE 65536
 #define ARRAY_SIZE 921600
-#define MAP_SIZE 2887680  // 752 * 480 * 8
+//#define MAP_SIZE 2887680  // 752 * 480 * 8
 #define PAGE_SIZE2 ((size_t)getpagesize())
 #define PAGE_MASK ((uint64_t)(long)~(PAGE_SIZE2 - 1))
 
@@ -638,16 +638,19 @@ int getFrame(void * indatav){
   indata = (uint32_t*) indatav;
   int x;
   x = (*(volatile int *)(mm_data_info + 12));
-  printf("x is: %d\n",x);
+  printf("x value: %d\n",x);
   if (x != staticX) {   
     if ((x == 1) || (x == 6)){
-        memcpy((indata), handleGlobal.fb3VirtualAddress, MAP_SIZE); 
+        //memcpy((indata), handleGlobal.fb3VirtualAddress, MAP_SIZE); 
+        memcpy((indata), handleGlobal.fb3VirtualAddress, handleGlobal.fbLength); 
     }
     else if ((x == 3) || (x == 7)){
-        memcpy((indata), handleGlobal.fb1VirtualAddress, MAP_SIZE); 
+        //memcpy((indata), handleGlobal.fb1VirtualAddress, MAP_SIZE); 
+        memcpy((indata), handleGlobal.fb1VirtualAddress, handleGlobal.fbLength); 
     }
     else if ((x == 2) || (x == 5)){
-        memcpy((indata), handleGlobal.fb2VirtualAddress, MAP_SIZE); 
+        //memcpy((indata), handleGlobal.fb2VirtualAddress, MAP_SIZE); 
+        memcpy((indata), handleGlobal.fb2VirtualAddress, handleGlobal.fbLength); 
     }
     else{
         printf("error in imageFeedthroughDriver.so\n");

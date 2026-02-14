@@ -81,6 +81,27 @@
 #define VDMA_STATUS_REGISTER_FrameCount                 0x00ff0000  // Read-only
 #define VDMA_STATUS_REGISTER_DelayCount                 0xff000000  // Read-only
 
+#include <sys/types.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#define UIO_MAX_NAME_SIZE	64
+#define UIO_MAX_NUM		255
+
+#define UIO_INVALID_SIZE	-1
+#define UIO_INVALID_ADDR	(~0)
+
+#define UIO_MMAP_NOT_DONE	0
+#define UIO_MMAP_OK		1
+#define UIO_MMAP_FAILED		2
+#define MAX_UIO_MAPS 	5
+
 typedef struct {
     unsigned int baseAddr;
     int vdmaHandler;
@@ -101,6 +122,283 @@ typedef struct {
 
 vdma_handle handleGlobal;
 uint8_t *mm_data_info;
+
+struct uio_map_t {
+	unsigned long addr;
+	int size;
+	int mmap_result;
+};
+
+struct uio_dev_attr_t {
+	char name[ UIO_MAX_NAME_SIZE ];
+	char value[ UIO_MAX_NAME_SIZE ];
+	struct uio_dev_attr_t *next;
+};
+
+struct uio_info_t {
+	int uio_num;
+	struct uio_map_t maps[ MAX_UIO_MAPS ];
+	unsigned long event_count;
+	char name[ UIO_MAX_NAME_SIZE ];
+	char version[ UIO_MAX_NAME_SIZE ];
+	struct uio_dev_attr_t *dev_attrs;
+	struct uio_info_t* next;  /* for linked list */
+};
+
+void uio_single_mmap_test(struct uio_info_t* info, int map_num){
+	info->maps[map_num].mmap_result = UIO_MMAP_NOT_DONE;
+	if (info->maps[map_num].size <= 0)
+		return;
+	info->maps[map_num].mmap_result = UIO_MMAP_FAILED;
+	char dev_name[16];
+	sprintf(dev_name,"/dev/uio%d",info->uio_num);
+	int fd = open(dev_name,O_RDONLY);
+	if (fd < 0)
+		return;
+	void* map_addr = mmap( NULL,
+			       info->maps[map_num].size,
+			       PROT_READ,
+			       MAP_SHARED,
+			       fd,
+			       map_num*getpagesize());
+	if (map_addr != MAP_FAILED) {
+		info->maps[map_num].mmap_result = UIO_MMAP_OK;
+		munmap(map_addr, info->maps[map_num].size);
+	}
+	close(fd);
+}
+
+void uio_mmap_test(struct uio_info_t* info){
+	int map_num;
+	for (map_num= 0; map_num < MAX_UIO_MAPS; map_num++)
+		uio_single_mmap_test(info, map_num);
+} 
+
+static void show_device(struct uio_info_t *info){
+	char dev_name[16];
+	sprintf(dev_name,"uio%d",info->uio_num);
+	printf("%s: name=%s, version=%s, events=%d\n",
+	       dev_name, info->name, info->version, info->event_count);
+}
+
+static int show_map(struct uio_info_t *info, int map_num){
+	if (info->maps[map_num].size <= 0)
+		return -1;
+
+	printf("\tmap[%d]: addr=0x%08X, size=%d",
+	       map_num,
+	       info->maps[map_num].addr,
+	       info->maps[map_num].size);
+
+	//if (opt_mmap) {
+		printf(", mmap test: ");
+		switch (info->maps[map_num].mmap_result) {
+			case UIO_MMAP_NOT_DONE:
+				printf("N/A");
+				break;
+			case UIO_MMAP_OK:
+				printf("OK");
+				break;
+			default:
+				printf("FAILED");
+		}
+	//}
+	printf("\n");
+	return 0;
+}
+
+static void show_maps(struct uio_info_t *info){
+	int ret;
+	int mi = 0;
+	do {
+		ret = show_map(info, mi);
+		mi++;
+	} while ((ret == 0)&&(mi < MAX_UIO_MAPS));
+}
+
+void uio_free_dev_attrs(struct uio_info_t* info){
+	struct uio_dev_attr_t *p1, *p2;
+	p1 = info->dev_attrs;
+	while (p1) {
+		p2 = p1->next;
+		free(p1);
+		p1 = p2;
+	}
+	info->dev_attrs = NULL;
+}
+
+void uio_free_info(struct uio_info_t* info){
+	struct uio_info_t *p1,*p2;
+	p1 = info;
+	while (p1) {
+		uio_free_dev_attrs(p1);
+		p2 = p1->next;
+		free(p1);
+		p1 = p2;
+	}
+}
+
+int uio_get_mem_size(struct uio_info_t* info, int map_num){
+	int ret;
+	char filename[64];
+	info->maps[map_num].size = UIO_INVALID_SIZE;
+	sprintf(filename, "/sys/class/uio/uio%d/maps/map%d/size",
+		info->uio_num, map_num);
+	FILE* file = fopen(filename,"r");
+	if (!file) return -1;
+	ret = fscanf(file,"0x%lx",&info->maps[map_num].size);
+	fclose(file);
+	if (ret<0) return -2;
+	return 0;
+}
+
+int uio_get_mem_addr(struct uio_info_t* info, int map_num){
+	int ret;
+	char filename[64];
+	info->maps[map_num].addr = UIO_INVALID_ADDR;
+	sprintf(filename, "/sys/class/uio/uio%d/maps/map%d/addr",
+		info->uio_num, map_num);
+	FILE* file = fopen(filename,"r");
+	if (!file) return -1;
+	ret = fscanf(file,"0x%lx",&info->maps[map_num].addr);
+	fclose(file);
+	if (ret<0) return -2;
+	return 0;
+}
+
+int uio_get_event_count(struct uio_info_t* info){
+	int ret;
+	char filename[64];
+	info->event_count = 0;
+	sprintf(filename, "/sys/class/uio/uio%d/event", info->uio_num);
+	FILE* file = fopen(filename,"r");
+	if (!file) return -1;
+	ret = fscanf(file,"%d",&info->event_count);
+	fclose(file);
+	if (ret<0) return -2;
+	return 0;
+}
+
+int line_from_file(char *filename, char *linebuf){
+	char *s;
+	int i;
+	memset(linebuf, 0, UIO_MAX_NAME_SIZE);
+	FILE* file = fopen(filename,"r");
+	if (!file) return -1;
+	s = fgets(linebuf,UIO_MAX_NAME_SIZE,file);
+	if (!s) return -2;
+	for (i=0; (*s)&&(i<UIO_MAX_NAME_SIZE); i++) {
+		if (*s == '\n') *s = 0;
+		s++;
+	}
+	return 0;
+}
+
+int uio_get_name(struct uio_info_t* info){
+	char filename[64];
+	sprintf(filename, "/sys/class/uio/uio%d/name", info->uio_num);
+
+	return line_from_file(filename, info->name);
+}
+
+int uio_get_version(struct uio_info_t* info){
+	char filename[64];
+	sprintf(filename, "/sys/class/uio/uio%d/version", info->uio_num);
+
+	return line_from_file(filename, info->version);
+}
+
+int uio_get_all_info(struct uio_info_t* info){
+	int i;
+	if (!info)
+		return -1;
+	if ((info->uio_num < 0)||(info->uio_num > UIO_MAX_NUM))
+		return -1;
+	for (i = 0; i < MAX_UIO_MAPS; i++) {
+		uio_get_mem_size(info, i);
+		uio_get_mem_addr(info, i);
+	}
+	uio_get_event_count(info);
+	uio_get_name(info);
+	uio_get_version(info);
+	return 0;
+}
+
+int uio_num_from_filename(char* name){
+	enum scan_states { ss_u, ss_i, ss_o, ss_num, ss_err };
+	enum scan_states state = ss_u;
+	int i=0, num = -1;
+	char ch = name[0];
+	while (ch && (state != ss_err)) {
+		switch (ch) {
+			case 'u': if (state == ss_u) state = ss_i;
+				  else state = ss_err;
+				  break;
+			case 'i': if (state == ss_i) state = ss_o;
+				  else state = ss_err;
+				  break;
+			case 'o': if (state == ss_o) state = ss_num;
+				  else state = ss_err;
+				  break;
+			default:  if (  (ch>='0') && (ch<='9')
+				      &&(state == ss_num) ) {
+					if (num < 0) num = (ch - '0');
+					else num = (num * 10) + (ch - '0');
+				  }
+				  else state = ss_err;
+		}
+		i++;
+		ch = name[i];
+	}
+	if (state == ss_err) num = -1;
+	return num;
+}
+
+static struct uio_info_t* info_from_name(char* name, int filter_num){
+	struct uio_info_t* info;
+	int num = uio_num_from_filename(name);
+	if (num < 0)
+		return NULL;
+	if ((filter_num >= 0) && (num != filter_num))
+		return NULL;
+
+	info = malloc(sizeof(struct uio_info_t));
+	if (!info)
+		return NULL;
+	memset(info,0,sizeof(struct uio_info_t));
+	info->uio_num = num;
+
+	return info;
+}
+
+struct uio_info_t* uio_find_devices(int filter_num, int *uioCount){
+	struct dirent **namelist;
+	struct uio_info_t *infolist = NULL, *infp, *last;
+	int n;
+
+	n = scandir("/sys/class/uio", &namelist, 0, alphasort);
+
+    // this is because the . and .. appear as names in the directory
+	*uioCount = n - 2;
+
+	if (n < 0)
+		return NULL;
+
+	while(n--) {
+		infp = info_from_name(namelist[n]->d_name, filter_num);
+		free(namelist[n]);
+		if (!infp)
+			continue;
+		if (!infolist)
+			infolist = infp;
+		else
+			last->next = infp;
+		last = infp;
+	}
+	free(namelist);
+
+	return infolist;
+}
 
 void vdma_halt(vdma_handle *handle) {
     vdma_set(handle, OFFSET_VDMA_MM2S_CONTROL_REGISTER, VDMA_CONTROL_REGISTER_RESET);
@@ -139,6 +437,74 @@ int vdma_setup(vdma_handle *handle, unsigned int baseAddr, int width, int height
 
     return 0;
 }
+
+int vdma_setup_uio(vdma_handle *handle, int width, int height, int pixelLength, char *name0, char *name1) {
+	struct uio_info_t *info_list, *p, *regs, *buf1;
+	int compareResult;
+	int uioNum = -1;
+	int uioCount = 0;
+	char dev_name[16];
+	int fd1;
+	int fd2;
+	int fd3;
+	int fd4;
+	int map_num = 0;
+	
+	info_list = uio_find_devices(-1,&uioCount);
+	if (!info_list)
+		printf("No UIO devices found.\n");
+
+	p = info_list;
+
+	while (p) {
+		uio_get_all_info(p);
+        
+		compareResult = strcmp(name0,p->name);
+		if (compareResult == 0){
+			regs = p;
+		}
+		
+		compareResult = strcmp(name1,p->name);
+		if (compareResult == 0){
+			buf1 = p;
+		}
+		
+		p = p->next;
+	}
+
+    //handle->baseAddr=baseAddr;
+    handle->width=width;
+    handle->height=height;
+    handle->pixelLength=pixelLength;
+    handle->fbLength=pixelLength*width*height;
+	
+	// setup vdma axi lite mapping
+	sprintf(dev_name,"/dev/uio%d",regs->uio_num);
+	fd1 = open(dev_name,O_RDWR | O_SYNC);
+
+	handle->vdmaVirtualAddress = mmap( NULL,
+			       regs->maps[map_num].size,
+			       PROT_READ | PROT_WRITE,
+			       MAP_SHARED,
+			       fd1,
+			       map_num*getpagesize());
+				            
+	// setup frame buffer 1
+	sprintf(dev_name,"/dev/uio%d",buf1->uio_num);
+	fd2 = open(dev_name,O_RDWR | O_SYNC);
+	
+	map_num = 0;
+	handle->fb1PhysicalAddress = buf1->maps[map_num].addr;
+	handle->fb1VirtualAddress = mmap( NULL,
+			       handle->fbLength,
+			       PROT_READ | PROT_WRITE,
+			       MAP_SHARED,
+			       fd2,
+			       map_num*getpagesize());
+	    
+    return 0;
+}
+
 
 void vdma_start_triple_buffering(vdma_handle *handle) {
     // Reset VDMA
@@ -183,8 +549,10 @@ void vdma_start_triple_buffering(vdma_handle *handle) {
     vdma_set(handle, OFFSET_VDMA_MM2S_VSIZE, handle->height);
 }
 
-int init(){
-  vdma_setup(&handleGlobal, 0xA0020000, 752, 480, 8, 0x26000000);
+//int init(){
+int init(char *name0, char *name1, int width, int height, int depth){
+  //vdma_setup(&handleGlobal, 0xA0020000, 752, 480, 8, 0x26000000);
+  vdma_setup_uio(&handleGlobal,width,height,depth,name0,name1);
   vdma_start_triple_buffering(&handleGlobal);
   return(0);
 }
@@ -192,7 +560,8 @@ int init(){
 int setFrame(void * indatav){
   uint64_t* indata;
   indata = (uint64_t*) indatav;
-  memcpy(handleGlobal.fb1VirtualAddress,(indata), MAP_SIZE); 
+  //memcpy(handleGlobal.fb1VirtualAddress,(indata), MAP_SIZE); 
+  memcpy(handleGlobal.fb1VirtualAddress,(indata), handleGlobal.fbLength); 
   return(0);
 }
 
