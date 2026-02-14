@@ -30,9 +30,9 @@ class ImageFeedthrough(object):
     result = self.lib.getFrame(ctypes.c_void_p(self.receiveFrame.ctypes.data))
     return self.receiveFrame[:,:,0:4],self.receiveFrame[:,:,4:8]
     
-  def getMonoRGB(self):
+  def getMonoGray (self):
     result = self.lib.getFrame(ctypes.c_void_p(self.receiveFrame.ctypes.data))
-    return self.receiveFrame[:,:,0:3]
+    return self.receiveFrame
     
   def __del__(self):
     result = self.lib.destroy
@@ -58,6 +58,10 @@ class ImageProcessing(object):
   def getMonoRGB(self):
     result = self.lib.getFrame(ctypes.c_void_p(self.receiveFrame.ctypes.data))
     return self.receiveFrame[:,:,0:3]
+      
+  def getMonoGray (self):
+    result = self.lib.getFrame(ctypes.c_void_p(self.receiveFrame.ctypes.data))
+    return self.receiveFrame
       
   def __del__(self):
     result = self.lib.destroy
