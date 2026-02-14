@@ -1,5 +1,6 @@
 # Dr. Kaputa
-# Frame Grabber
+# ravvenlabs
+# frame grabber
 
 import os
 import cv2
@@ -65,15 +66,9 @@ class ImageWriter(object):
   def __init__(self,width,height,depth):
     self.lib = ctypes.cdll.LoadLibrary('./writeImage.so')
     result = self.lib.init(b"vdma3-write-reg",b"vdma3-write-buf",width,height,depth)
-    self.f2 = open("/dev/mem", "r+b")
-    self.switchMem = mmap.mmap(self.f2.fileno(), 1000, offset=0xa0050000)
-    
+
   def setFrame(self,frame):
     result = self.lib.setFrame(ctypes.c_void_p(frame.ctypes.data))
-    mv = memoryview(self.switchMem).cast('Q') 
-    mv[0] = 1
-    #self.switchMem.seek(0) 
-    #self.switchMem.write(struct.pack('l', 1))
 
   def __del__(self):
     result = self.lib.destroy

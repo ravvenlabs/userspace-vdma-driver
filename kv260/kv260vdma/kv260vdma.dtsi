@@ -55,6 +55,36 @@
         reg = <0x0 0x22000000 0x0 0x1000000>;
 	};
     
+    vdma2-read-reg {
+		compatible = "generic-uio";
+        reg = <0x0 0xA0010000 0x0 0x1000>;
+	};
+	
+	vdma2-read-buf1 {
+		compatible = "generic-uio";
+        reg = <0x0 0x23000000 0x0 0x1000000>;
+	};
+	
+	vdma2-read-buf2 {
+		compatible = "generic-uio";
+        reg = <0x0 0x24000000 0x0 0x1000000>;
+	};
+	
+	vdma2-read-buf3 {
+		compatible = "generic-uio";
+        reg = <0x0 0x25000000 0x0 0x1000000>;
+	};
+
+    vdma3-write-reg {
+		compatible = "generic-uio";
+        reg = <0x0 0xA0020000 0x0 0x1000>;
+	};
+
+	vdma3-write-buf {
+		compatible = "generic-uio";
+        reg = <0x0 0x26000000 0x0 0x1000000>;
+	};
+    
 	cam_axi_1: cam_axi@a0030000 {
 		/* This is a place holder node for a custom IP, user may need to update the entries */
 		clock-names = "s00_axi_aclk";
