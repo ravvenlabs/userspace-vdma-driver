@@ -1,26 +1,27 @@
 // Dr. Kaputa
-// VDMA control
+// ravvenlabs
+// readImage.c
+// user space vdma driver
 
 #include <stdio.h>
 #include <string.h>
 #include <pthread.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <math.h>
 #include <signal.h>
 #include <time.h>
-#define BILLION 1E9
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <byteswap.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <errno.h>
+#include <dirent.h>
+#define BILLION 1E9
 #define PAGE_SIZE 65536
 #define ARRAY_SIZE 921600
-#define MAP_SIZE 2887680  // 752 * 480 * 8
 #define PAGE_SIZE2 ((size_t)getpagesize())
 #define PAGE_MASK ((uint64_t)(long)~(PAGE_SIZE2 - 1))
 
@@ -81,26 +82,16 @@
 #define VDMA_STATUS_REGISTER_FrameCount                 0x00ff0000  // Read-only
 #define VDMA_STATUS_REGISTER_DelayCount                 0xff000000  // Read-only
 
-#include <sys/types.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <dirent.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <unistd.h>
-
 #define UIO_MAX_NAME_SIZE	64
-#define UIO_MAX_NUM		255
+#define UIO_MAX_NUM		    255
 
 #define UIO_INVALID_SIZE	-1
 #define UIO_INVALID_ADDR	(~0)
 
 #define UIO_MMAP_NOT_DONE	0
-#define UIO_MMAP_OK		1
+#define UIO_MMAP_OK		    1
 #define UIO_MMAP_FAILED		2
-#define MAX_UIO_MAPS 	5
+#define MAX_UIO_MAPS 	    5
 
 typedef struct {
     unsigned int baseAddr;
@@ -110,18 +101,19 @@ typedef struct {
     int pixelLength;
     int fbLength;
     unsigned int* vdmaVirtualAddress;
-    unsigned char* fb1VirtualAddress;
-    unsigned char* fb1PhysicalAddress;
-    unsigned char* fb2VirtualAddress;
-    unsigned char* fb2PhysicalAddress;
-    unsigned char* fb3VirtualAddress;
-    unsigned char* fb3PhysicalAddress;
+    unsigned int* fb1VirtualAddress;
+    unsigned int* fb1PhysicalAddress;
+    unsigned int* fb2VirtualAddress;
+    unsigned int* fb2PhysicalAddress;
+    unsigned int* fb3VirtualAddress;
+    unsigned int* fb3PhysicalAddress;
 
     pthread_mutex_t lock;
 } vdma_handle;
 
 vdma_handle handleGlobal;
 uint8_t *mm_data_info;
+int     staticX;
 
 struct uio_map_t {
 	unsigned long addr;
@@ -401,9 +393,13 @@ struct uio_info_t* uio_find_devices(int filter_num, int *uioCount){
 }
 
 void vdma_halt(vdma_handle *handle) {
+	printf("halting\r\n");
+    vdma_set(handle, OFFSET_VDMA_S2MM_CONTROL_REGISTER, VDMA_CONTROL_REGISTER_RESET);
     vdma_set(handle, OFFSET_VDMA_MM2S_CONTROL_REGISTER, VDMA_CONTROL_REGISTER_RESET);
     munmap((void *)handle->vdmaVirtualAddress, 65535);
     munmap((void *)handle->fb1VirtualAddress, handle->fbLength);
+    munmap((void *)handle->fb2VirtualAddress, handle->fbLength);
+    munmap((void *)handle->fb3VirtualAddress, handle->fbLength);
     close(handle->vdmaHandler);
 }
 
@@ -415,7 +411,8 @@ void vdma_set(vdma_handle *handle, int num, unsigned int val) {
     handle->vdmaVirtualAddress[num>>2]=val;
 }
 
-int vdma_setup(vdma_handle *handle, unsigned int baseAddr, int width, int height, int pixelLength, unsigned int fb1Addr) {
+// setup witout uio.  Not used any more
+int vdma_setup(vdma_handle *handle, unsigned int baseAddr, int width, int height, int pixelLength, unsigned int fb1Addr, unsigned int fb2Addr, unsigned int fb3Addr) {
     handle->baseAddr=baseAddr;
     handle->width=width;
     handle->height=height;
@@ -435,11 +432,27 @@ int vdma_setup(vdma_handle *handle, unsigned int baseAddr, int width, int height
         return -2;
     }
 
+    handle->fb2PhysicalAddress = fb2Addr;
+    handle->fb2VirtualAddress = (unsigned char*)mmap(NULL, handle->fbLength, PROT_READ | PROT_WRITE, MAP_SHARED, handle->vdmaHandler, (off_t)fb2Addr);
+    if(handle->fb2VirtualAddress == MAP_FAILED) {
+        perror("fb2VirtualAddress mapping for absolute memory access failed.\n");
+        return -3;
+    }
+
+    handle->fb3PhysicalAddress = fb3Addr;
+    handle->fb3VirtualAddress = (unsigned char*)mmap(NULL, handle->fbLength, PROT_READ | PROT_WRITE, MAP_SHARED, handle->vdmaHandler, (off_t)fb3Addr);
+    if(handle->fb3VirtualAddress == MAP_FAILED)
+    {
+     perror("fb3VirtualAddress mapping for absolute memory access failed.\n");
+     return -3;
+    }
+
     return 0;
 }
 
-int vdma_setup_uio(vdma_handle *handle, int width, int height, int pixelLength, char *name0, char *name1) {
-	struct uio_info_t *info_list, *p, *regs, *buf1;
+// uio based setup
+int vdma_setup_uio(vdma_handle *handle, int width, int height, int pixelLength, char *name0, char *name1, char *name2, char *name3) {
+	struct uio_info_t *info_list, *p, *regs, *buf1, *buf2, *buf3;
 	int compareResult;
 	int uioNum = -1;
 	int uioCount = 0;
@@ -467,6 +480,16 @@ int vdma_setup_uio(vdma_handle *handle, int width, int height, int pixelLength, 
 		compareResult = strcmp(name1,p->name);
 		if (compareResult == 0){
 			buf1 = p;
+		}
+		
+		compareResult = strcmp(name2,p->name);
+		if (compareResult == 0){
+			buf2 = p;
+		}
+		
+		compareResult = strcmp(name3,p->name);
+		if (compareResult == 0){
+			buf3 = p;
 		}
 		
 		p = p->next;
@@ -502,30 +525,59 @@ int vdma_setup_uio(vdma_handle *handle, int width, int height, int pixelLength, 
 			       fd2,
 			       map_num*getpagesize());
 	    
+	// setup frame buffer 2
+	sprintf(dev_name,"/dev/uio%d",buf2->uio_num);
+	fd3 = open(dev_name,O_RDWR | O_SYNC);
+
+    map_num = 0;
+    handle->fb2PhysicalAddress = buf2->maps[map_num].addr;
+	handle->fb2VirtualAddress = mmap( NULL,
+			       handle->fbLength,
+			       PROT_READ | PROT_WRITE,
+			       MAP_SHARED,
+			       fd3,
+			       map_num*getpagesize());
+    
+	// setup frame buffer 3
+	sprintf(dev_name,"/dev/uio%d",buf3->uio_num);
+	fd4 = open(dev_name,O_RDWR | O_SYNC);
+
+    map_num = 0;
+    handle->fb3PhysicalAddress = buf3->maps[map_num].addr;
+	handle->fb3VirtualAddress = mmap( NULL,
+			       handle->fbLength,
+			       PROT_READ | PROT_WRITE,
+			       MAP_SHARED,
+			       fd4,
+			       map_num*getpagesize());
+        
     return 0;
 }
 
-
 void vdma_start_triple_buffering(vdma_handle *handle) {
     // Reset VDMA
-    vdma_set(handle, OFFSET_VDMA_MM2S_CONTROL_REGISTER, VDMA_CONTROL_REGISTER_RESET);
+    vdma_set(handle, OFFSET_VDMA_S2MM_CONTROL_REGISTER, VDMA_CONTROL_REGISTER_RESET);
 
     // Wait for reset to finish
-    while((vdma_get(handle, OFFSET_VDMA_MM2S_CONTROL_REGISTER) & VDMA_CONTROL_REGISTER_RESET)==4);
+    while((vdma_get(handle, OFFSET_VDMA_S2MM_CONTROL_REGISTER) & VDMA_CONTROL_REGISTER_RESET)==4);
 
     // Clear all error bits in status register
-    vdma_set(handle, OFFSET_VDMA_MM2S_STATUS_REGISTER, 0);
+    vdma_set(handle, OFFSET_VDMA_S2MM_STATUS_REGISTER, 0);
 
     // Do not mask interrupts
     vdma_set(handle, OFFSET_VDMA_S2MM_IRQ_MASK, 0xf);
 
     int interrupt_frame_count = 3;
 
-    vdma_set(handle, OFFSET_VDMA_MM2S_CONTROL_REGISTER,
+    // Start both S2MM and MM2S in triple buffering mode
+    vdma_set(handle, OFFSET_VDMA_S2MM_CONTROL_REGISTER,
         (interrupt_frame_count << 16) |
-        VDMA_CONTROL_REGISTER_START);
-
-    while((vdma_get(handle, 0x34)&1)==1) {
+        VDMA_CONTROL_REGISTER_START |
+        VDMA_CONTROL_REGISTER_GENLOCK_ENABLE |
+        VDMA_CONTROL_REGISTER_INTERNAL_GENLOCK |
+        VDMA_CONTROL_REGISTER_CIRCULAR_PARK);
+        
+    while((vdma_get(handle, 0x30)&1)==0 || (vdma_get(handle, 0x34)&1)==1) {
         printf("Waiting for VDMA to start running...\n");
         sleep(1);
     }
@@ -534,35 +586,64 @@ void vdma_start_triple_buffering(vdma_handle *handle) {
     vdma_set(handle, OFFSET_VDMA_S2MM_REG_INDEX, 0);
 
     // Write physical addresses to control register
-    vdma_set(handle, OFFSET_VDMA_MM2S_FRAMEBUFFER1, handle->fb1PhysicalAddress);
+    vdma_set(handle, OFFSET_VDMA_S2MM_FRAMEBUFFER1, handle->fb1PhysicalAddress);
+    vdma_set(handle, OFFSET_VDMA_S2MM_FRAMEBUFFER2, handle->fb2PhysicalAddress);
+    vdma_set(handle, OFFSET_VDMA_S2MM_FRAMEBUFFER3, handle->fb3PhysicalAddress);
 
     // Write Park pointer register
     vdma_set(handle, OFFSET_PARK_PTR_REG, 0);
 
     // Frame delay and stride (bytes)
-    vdma_set(handle, OFFSET_VDMA_MM2S_FRMDLY_STRIDE, handle->width*handle->pixelLength);
+    vdma_set(handle, OFFSET_VDMA_S2MM_FRMDLY_STRIDE, handle->width*handle->pixelLength);
 
     // Write horizontal size (bytes)
-    vdma_set(handle, OFFSET_VDMA_MM2S_HSIZE, handle->width*handle->pixelLength);
+    vdma_set(handle, OFFSET_VDMA_S2MM_HSIZE, handle->width*handle->pixelLength);
 
     // Write vertical size (lines), this actually starts the transfer
-    vdma_set(handle, OFFSET_VDMA_MM2S_VSIZE, handle->height);
+    vdma_set(handle, OFFSET_VDMA_S2MM_VSIZE, handle->height);
 }
 
-//int init(){
-int init(char *name0, char *name1, int width, int height, int depth){
-  //vdma_setup(&handleGlobal, 0xA0020000, 752, 480, 8, 0x26000000);
-  vdma_setup_uio(&handleGlobal,width,height,depth,name0,name1);
+int init(char *name0, char *name1, char *name2, char *name3, int width, int height, int depth){
+  int cached;
+  int fd;
+  //vdma_setup(&handleGlobal, 0xA0000000, 752, 480, 8, 0x20000000, 0x21000000, 0x22000000);
+  vdma_setup_uio(&handleGlobal,width,height,depth,name0,name1,name2,name3);
   vdma_start_triple_buffering(&handleGlobal);
+  cached = 0;
+  fd = open("/dev/mem", O_RDWR|(!cached ? O_SYNC : 0));
+  mm_data_info = mmap(NULL, 32, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0xA0030000);
+  staticX = 0;
   return(0);
 }
 
-int setFrame(void * indatav){
-  uint64_t* indata;
-  indata = (uint64_t*) indatav;
-  //memcpy(handleGlobal.fb1VirtualAddress,(indata), MAP_SIZE); 
-  memcpy(handleGlobal.fb1VirtualAddress,(indata), handleGlobal.fbLength); 
-  return(0);
+int getFrame(void * indatav){
+  uint32_t* indata;
+  indata = (uint32_t*) indatav;
+  int x;
+  x = (*(volatile int *)(mm_data_info + 12));
+  printf("x value: %d\n",x);
+  if (x != staticX) {   
+    if ((x == 1) || (x == 6)){
+        //memcpy((indata), handleGlobal.fb3VirtualAddress, MAP_SIZE); 
+        memcpy((indata), handleGlobal.fb3VirtualAddress, handleGlobal.fbLength); 
+    }
+    else if ((x == 3) || (x == 7)){
+        //memcpy((indata), handleGlobal.fb1VirtualAddress, MAP_SIZE); 
+        memcpy((indata), handleGlobal.fb1VirtualAddress, handleGlobal.fbLength); 
+    }
+    else if ((x == 2) || (x == 5)){
+        //memcpy((indata), handleGlobal.fb2VirtualAddress, MAP_SIZE); 
+        memcpy((indata), handleGlobal.fb2VirtualAddress, handleGlobal.fbLength); 
+    }
+    else{
+        printf("error in imageFeedthroughDriver.so\n");
+    } 
+    staticX = x;
+    return(0);
+  }
+  else{
+    return(1);
+  }
 }
 
 int destroy(){

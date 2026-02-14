@@ -1,3 +1,5 @@
 gcc -shared -fPIC -o imageFeedthroughDriver.so imageFeedthroughDriver.c
 gcc -shared -fPIC -o imageProcessingDriver.so imageProcessingDriver.c
 gcc -shared -fPIC -o imageWriterDriver.so imageWriterDriver.c
+gcc -shared -fPIC -o readImage.so readImage.c
+gcc -shared -fPIC -o writeImage.so writeImage.c
