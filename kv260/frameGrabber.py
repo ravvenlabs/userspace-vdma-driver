@@ -14,7 +14,7 @@ import copy
 
 class ImageFeedthrough(object):
   def __init__(self,width,height,depth):
-    self.lib = ctypes.cdll.LoadLibrary('./readImage.so')
+    self.lib = ctypes.cdll.LoadLibrary('./readImageFeedthrough.so')
     result = self.lib.init(b"vdma1-read-reg",b"vdma1-read-buf1",b"vdma1-read-buf2",b"vdma1-read-buf3",width,height,depth)
     self.receiveFrame= np.ones((height,width,depth), dtype=np.uint8)
     
@@ -39,7 +39,7 @@ class ImageFeedthrough(object):
         
 class ImageProcessing(object):
   def __init__(self,width,height,depth):
-    self.lib = ctypes.cdll.LoadLibrary('./readImage.so')
+    self.lib = ctypes.cdll.LoadLibrary('./readImageProcessing.so')
     result = self.lib.init(b"vdma2-read-reg",b"vdma2-read-buf1",b"vdma2-read-buf2",b"vdma2-read-buf3",width,height,depth)
     self.receiveFrame= np.ones((height,width,depth), dtype=np.uint8)
 
