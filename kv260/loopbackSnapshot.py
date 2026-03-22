@@ -28,7 +28,7 @@ time.sleep(1)
 print("writing frame to FPGA")
 # generate testing image
 data = np.zeros((height,width,depth), dtype=np.uint8)
-data[:,200,:] = 250 
+data[:,100,:] = 250 
 data[:,980,:] = 250 
 data[100,:,:] = 250 
 data[620,:,:] = 250 
